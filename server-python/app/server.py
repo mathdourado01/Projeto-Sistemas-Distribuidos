@@ -14,16 +14,16 @@ from storage import Storage
 
 
 def main() -> None:
-    bind_address = os.getenv("SERVER_BIND", "tcp://0.0.0.0:5555")
-    db_path = os.getenv("SERVER_DB_PATH", "/app/data/server.db")
+    broker_address = os.getenv("BROKER_ADDRESS", "tcp://127.0.0.1:5555")
+    db_path = os.getenv("SERVER_DB_PATH", "data/server.db")
 
     storage = Storage(db_path=db_path)
 
     context = zmq.Context()
     socket = context.socket(zmq.REP)
-    socket.bind(bind_address)
+    socket.connect(broker_address)
 
-    print(f"Servidor escutando em {bind_address}")
+    print(f"Servidor conectado ao broker em {broker_address}")
     print(f"Banco de dados em {db_path}")
 
     while True:

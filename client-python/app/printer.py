@@ -1,0 +1,12 @@
+def print_message(direction: str, msg) -> None:
+    print("=" * 60)
+    print(f"[{direction}]")
+    print(f"type         : {msg.type}")
+    print(f"timestamp    : {msg.timestamp}")
+    print(f"request_id   : {msg.request_id}")
+    print(f"username     : {msg.username}")
+    print(f"channel_name : {msg.channel_name}")
+    print(f"success      : {msg.success}")
+    print(f"error_message: {msg.error_message}")
+    print(f"channels     : {list(msg.channels)}")
+    print("=" * 60)
