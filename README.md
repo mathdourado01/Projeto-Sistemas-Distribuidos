@@ -19,3 +19,8 @@ Foi utilizado Protocol Buffers (Protobuf) como formato de serialização das men
 ### Persistência
 
 A persistência de dados foi implementada utilizando SQLite no servidor Python. Essa escolha se deve à sua simplicidade de uso e ao fato de ser suficiente para armazenar os dados necessários, como os canais criados no sistema.
+
+#### Desenvolvedores
+- João Pedro Sabino Garcia - RA: 22.224.032-7
+
+- Matheus Dourado Valle - RA: 22.224.023-6
