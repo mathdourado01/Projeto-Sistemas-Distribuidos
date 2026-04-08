@@ -16,9 +16,44 @@ O sistema foi desenvolvido utilizando Python e Java. Essa escolha permite demons
 
 Foi utilizado Protocol Buffers (Protobuf) como formato de serialização das mensagens. Essa escolha foi feita devido à sua eficiência e padronização, além de permitir a integração entre diferentes linguagens.
 
+### Comunicação
+
+Além do modelo Request-Reply utilizado na primeira parte, foi adicionado o padrão Publish-Subscribe (Pub/Sub) para permitir a troca de mensagens entre usuários em canais.
+
+Para isso, foi implementado um proxy Pub/Sub utilizando ZeroMQ, responsável por intermediar a comunicação entre publishers (servidores) e subscribers (clientes).
+
+O fluxo funciona da seguinte forma:
+
+- O cliente envia uma requisição de publicação (PUBLISH_REQ) ao servidor
+- O servidor processa a requisição e publica a mensagem no canal correspondente
+- O proxy Pub/Sub encaminha a mensagem para todos os clientes inscritos nesse canal
+- Os clientes recebem e exibem as mensagens com informações como canal, conteúdo e timestamps
+
+Essa abordagem permite comunicação assíncrona e desacoplada entre múltiplos clientes.
+
 ### Persistência
 
-A persistência de dados foi implementada utilizando SQLite no servidor Python. Essa escolha se deve à sua simplicidade de uso e ao fato de ser suficiente para armazenar os dados necessários, como os canais criados no sistema.
+### Persistência
+
+A persistência de dados foi implementada utilizando SQLite no servidor Python.
+
+Na primeira parte, eram armazenados apenas os logins e os canais criados. Na segunda parte, o sistema passou a armazenar também as mensagens publicadas nos canais.
+
+Para cada mensagem, são registrados:
+- usuário que enviou
+- canal
+- conteúdo da mensagem
+- timestamp de envio
+
+Essa persistência permite manter um histórico das interações realizadas no sistema.
+
+### Proxy Pub/Sub
+
+Foi implementado um proxy dedicado para o modelo Publish-Subscribe, separado do broker utilizado para Request-Reply.
+
+O proxy utiliza sockets XSUB e XPUB do ZeroMQ para encaminhar mensagens entre servidores (publishers) e clientes (subscribers).
+
+Essa separação permite manter a arquitetura modular e escalável.
 
 #### Desenvolvedores
 - João Pedro Sabino Garcia - RA: 22.224.032-7
