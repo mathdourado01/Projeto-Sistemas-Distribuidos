@@ -11,4 +11,5 @@ message Envelope {
   bool success = 6;
   string error_message = 7;
   repeated string channels = 8;
+  string message_text = 9;
 }

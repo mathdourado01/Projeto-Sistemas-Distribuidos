@@ -21,6 +21,7 @@ def make_message(
     error_message: str = "",
     channels: Optional[List[str]] = None,
     request_id: str = "",
+    message_text: str = "",
 ) -> Envelope:
     msg = Envelope()
     msg.type = msg_type
@@ -30,6 +31,7 @@ def make_message(
     msg.channel_name = channel_name
     msg.success = success
     msg.error_message = error_message
+    msg.message_text = message_text
 
     if channels:
         msg.channels.extend(channels)

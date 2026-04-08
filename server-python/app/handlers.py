@@ -85,3 +85,68 @@ def handle_unknown(msg):
         error_message=f"Tipo de mensagem desconhecido: {msg.type}",
         request_id=msg.request_id,
     )
+
+def handle_publish(msg, storage, pub_socket):
+    username = msg.username.strip()
+    channel_name = msg.channel_name.strip()
+    message_text = msg.message_text.strip()
+
+    if not username:
+        return make_message(
+            msg_type="PUBLISH_REP",
+            success=False,
+            error_message="Usuário inválido.",
+            request_id=msg.request_id,
+        )
+
+    if not channel_name:
+        return make_message(
+            msg_type="PUBLISH_REP",
+            success=False,
+            error_message="Canal inválido.",
+            request_id=msg.request_id,
+        )
+
+    if not storage.channel_exists(channel_name):
+        return make_message(
+            msg_type="PUBLISH_REP",
+            success=False,
+            error_message="Canal não existe.",
+            request_id=msg.request_id,
+        )
+
+    if not message_text:
+        return make_message(
+            msg_type="PUBLISH_REP",
+            success=False,
+            error_message="Mensagem inválida.",
+            request_id=msg.request_id,
+        )
+
+    
+    storage.save_message(
+        username=username,
+        channel_name=channel_name,
+        message_text=message_text,
+        sent_timestamp=msg.timestamp,
+    )
+
+    
+    payload = make_message(
+        msg_type="CHANNEL_MESSAGE",
+        username=username,
+        channel_name=channel_name,
+        message_text=message_text,
+    )
+
+    
+    topic = channel_name.encode("utf-8")
+    pub_socket.send_multipart([topic, payload.SerializeToString()])
+
+    return make_message(
+        msg_type="PUBLISH_REP",
+        success=True,
+        username=username,
+        channel_name=channel_name,
+        request_id=msg.request_id,
+    )

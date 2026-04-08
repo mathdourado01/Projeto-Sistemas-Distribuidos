@@ -13,6 +13,7 @@ services:
     container_name: server-python
     environment:
       BROKER_ADDRESS: tcp://broker:5555
+      PUBSUB_ADDRESS: tcp://pubsub-proxy:5557
       SERVER_DB_PATH: data/server.db
     volumes:
       - ./server-python/data:/app/data
@@ -24,8 +25,16 @@ services:
     container_name: client-python
     environment:
       SERVER_ADDRESS: tcp://broker:5554
+      PUBSUB_PROXY_ADDRESS: tcp://pubsub-proxy:5558
       BOT_USERNAME: bot_python_1
       BOT_CHANNEL: geral
     depends_on:
       - broker
       - server-python 
+
+  pubsub-proxy:
+    build: ./pubsub-proxy
+    container_name: pubsub-proxy
+    ports:
+      - "5557:5557"
+      - "5558:5558"

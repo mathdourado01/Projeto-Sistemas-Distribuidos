@@ -32,6 +32,16 @@ class Storage:
                 )
             """)
 
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL,
+                    channel_name TEXT NOT NULL,
+                    message_text TEXT NOT NULL,
+                    sent_timestamp INTEGER NOT NULL
+                )
+            """)
+
             conn.commit()
 
     def save_login(self, username: str, login_timestamp: int) -> None:
@@ -77,3 +87,35 @@ class Storage:
             cursor.execute("SELECT name FROM channels ORDER BY name ASC")
             rows = cursor.fetchall()
             return [row[0] for row in rows]
+
+    def save_message(
+        self,
+        username: str,
+        channel_name: str,
+        message_text: str,
+        sent_timestamp: int,
+    ) -> None:
+        with self._connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO messages (username, channel_name, message_text, sent_timestamp)
+                VALUES (?, ?, ?, ?)
+                """,
+                (username, channel_name, message_text, sent_timestamp),
+            )
+            conn.commit()
+
+    def list_messages_by_channel(self, channel_name: str) -> list[tuple]:
+        with self._connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT username, channel_name, message_text, sent_timestamp
+                FROM messages
+                WHERE channel_name = ?
+                ORDER BY sent_timestamp ASC, id ASC
+                """,
+                (channel_name,),
+            )
+            return cursor.fetchall()
