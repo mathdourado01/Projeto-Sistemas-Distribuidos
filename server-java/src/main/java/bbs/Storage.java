@@ -36,6 +36,16 @@ public class Storage {
                 )
             """);
 
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL,
+                    channel_name TEXT NOT NULL,
+                    message_text TEXT NOT NULL,
+                    sent_timestamp INTEGER NOT NULL
+                )
+            """);
+
         } catch (SQLException e) {
             throw new RuntimeException("Erro ao inicializar banco: " + e.getMessage(), e);
         }
@@ -96,10 +106,29 @@ public class Storage {
             while (rs.next()) {
                 channels.add(rs.getString("name"));
             }
+
             return channels;
 
         } catch (SQLException e) {
             throw new RuntimeException("Erro ao listar canais: " + e.getMessage(), e);
+        }
+    }
+
+    public void saveMessage(String username, String channelName, String messageText, long sentTimestamp) {
+        String sql = """
+            INSERT INTO messages (username, channel_name, message_text, sent_timestamp)
+            VALUES (?, ?, ?, ?)
+        """;
+
+        try (Connection conn = connect();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, username);
+            ps.setString(2, channelName);
+            ps.setString(3, messageText);
+            ps.setLong(4, sentTimestamp);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new RuntimeException("Erro ao salvar mensagem: " + e.getMessage(), e);
         }
     }
 }

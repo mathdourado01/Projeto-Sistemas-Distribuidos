@@ -2,6 +2,9 @@ syntax = "proto3";
 
 package chat;
 
+option java_package = "chat";
+option java_outer_classname = "EnvelopeOuterClass";
+
 message Envelope {
   string type = 1;
   int64 timestamp = 2;
@@ -11,4 +14,11 @@ message Envelope {
   bool success = 6;
   string error_message = 7;
   repeated string channels = 8;
+  string message_text = 9;
+
+  int64 logical_clock = 10;
+  string server_name = 11;
+  int32 server_rank = 12;
+  repeated string servers = 13;
+  int64 physical_time = 14;
 }

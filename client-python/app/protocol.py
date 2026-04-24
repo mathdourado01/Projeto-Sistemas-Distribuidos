@@ -22,6 +22,11 @@ def make_message(
     channels: Optional[List[str]] = None,
     request_id: str = "",
     message_text: str = "",
+    logical_clock: int = 0,
+    server_name: str = "",
+    server_rank: int = 0,
+    servers: Optional[List[str]] = None,
+    physical_time: int = 0,
 ) -> Envelope:
     msg = Envelope()
     msg.type = msg_type
@@ -32,8 +37,15 @@ def make_message(
     msg.success = success
     msg.error_message = error_message
     msg.message_text = message_text
+    msg.logical_clock = logical_clock
+    msg.server_name = server_name
+    msg.server_rank = server_rank
+    msg.physical_time = physical_time
 
     if channels:
         msg.channels.extend(channels)
+
+    if servers:
+        msg.servers.extend(servers)
 
     return msg

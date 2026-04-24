@@ -7,9 +7,13 @@ import zmq
 from chat_pb2 import Envelope
 from printer import print_message
 from protocol import make_message
+from clock import LogicalClock
 
 
-def send_and_receive(socket, outgoing: Envelope) -> Envelope:
+def send_and_receive(socket, outgoing: Envelope, logical_clock: LogicalClock) -> Envelope:
+    logical_clock.tick()
+    outgoing.logical_clock = logical_clock.get_value()
+
     print_message("ENVIADA", outgoing)
     socket.send(outgoing.SerializeToString())
 
@@ -18,11 +22,15 @@ def send_and_receive(socket, outgoing: Envelope) -> Envelope:
     incoming = Envelope()
     incoming.ParseFromString(raw_response)
 
+    logical_clock.update(incoming.logical_clock)
+
     print_message("RECEBIDA", incoming)
+    print(f"Relógio lógico local do bot: {logical_clock.get_value()}")
+
     return incoming
 
 
-def listen_subscriptions(sub_socket, stop_event: threading.Event) -> None:
+def listen_subscriptions(sub_socket, stop_event: threading.Event, logical_clock: LogicalClock) -> None:
     poller = zmq.Poller()
     poller.register(sub_socket, zmq.POLLIN)
 
@@ -36,6 +44,7 @@ def listen_subscriptions(sub_socket, stop_event: threading.Event) -> None:
 
             incoming = Envelope()
             incoming.ParseFromString(raw_message)
+            logical_clock.update(incoming.logical_clock)
 
             received_timestamp = int(time.time())
 
@@ -45,6 +54,7 @@ def listen_subscriptions(sub_socket, stop_event: threading.Event) -> None:
             print(f"mensagem             : {incoming.message_text}")
             print(f"timestamp envio      : {incoming.timestamp}")
             print(f"timestamp recebimento: {received_timestamp}")
+            print(f"relógio lógico local: {logical_clock.get_value()}")
             print("-------------------------------------\n")
 
         except zmq.error.ZMQError:
@@ -61,6 +71,8 @@ def main() -> None:
     desired_channel = os.getenv("BOT_CHANNEL", "geral")
 
     context = zmq.Context()
+
+    logical_clock = LogicalClock()
 
     req_socket = context.socket(zmq.REQ)
     req_socket.connect(server_address)
@@ -81,7 +93,7 @@ def main() -> None:
             msg_type="LOGIN_REQ",
             username=username,
         )
-        login_rep = send_and_receive(req_socket, login_req)
+        login_rep = send_and_receive(req_socket, login_req, logical_clock)
 
         if not login_rep.success:
             print(f"Erro no login: {login_rep.error_message}")
@@ -90,7 +102,7 @@ def main() -> None:
         print(f"Login realizado com sucesso para '{username}'.")
 
         list_req_1 = make_message(msg_type="LIST_CHANNELS_REQ")
-        list_rep_1 = send_and_receive(req_socket, list_req_1)
+        list_rep_1 = send_and_receive(req_socket, list_req_1, logical_clock)
 
         if not list_rep_1.success:
             print(f"Erro ao listar canais: {list_rep_1.error_message}")
@@ -104,7 +116,7 @@ def main() -> None:
                 msg_type="CREATE_CHANNEL_REQ",
                 channel_name=desired_channel,
             )
-            create_rep = send_and_receive(req_socket, create_req)
+            create_rep = send_and_receive(req_socket, create_req, logical_clock)
 
             if not create_rep.success:
                 print(f"Erro ao criar canal: {create_rep.error_message}")
@@ -115,7 +127,7 @@ def main() -> None:
             print(f"Canal '{desired_channel}' já existe.")
 
         list_req_2 = make_message(msg_type="LIST_CHANNELS_REQ")
-        list_rep_2 = send_and_receive(req_socket, list_req_2)
+        list_rep_2 = send_and_receive(req_socket, list_req_2, logical_clock)
 
         if not list_rep_2.success:
             print(f"Erro ao listar canais no final: {list_rep_2.error_message}")
@@ -127,7 +139,7 @@ def main() -> None:
 
         listener_thread = threading.Thread(
             target=listen_subscriptions,
-            args=(sub_socket, stop_event),
+            args=(sub_socket, stop_event, logical_clock),
             daemon=True,
         )
         listener_thread.start()
@@ -144,7 +156,7 @@ def main() -> None:
                 channel_name=desired_channel,
                 message_text=f"Mensagem de teste da Parte 2 - envio {i + 1}.",
             )
-            publish_rep = send_and_receive(req_socket, publish_req)
+            publish_rep = send_and_receive(req_socket, publish_req, logical_clock)
 
             if not publish_rep.success:
                 print(f"Erro ao publicar mensagem: {publish_rep.error_message}")

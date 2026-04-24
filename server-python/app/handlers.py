@@ -133,10 +133,11 @@ def handle_publish(msg, storage, pub_socket):
 
     
     payload = make_message(
-        msg_type="CHANNEL_MESSAGE",
-        username=username,
-        channel_name=channel_name,
-        message_text=message_text,
+    msg_type="CHANNEL_MESSAGE",
+    username=username,
+    channel_name=channel_name,
+    message_text=message_text,
+    logical_clock=msg.logical_clock,
     )
 
     
