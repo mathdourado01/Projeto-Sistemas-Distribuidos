@@ -85,7 +85,7 @@ def build_response(
     response.error_message = error_message
     response.server_name = server_name
     response.server_rank = server_rank
-    response.physical_time = 0
+    response.physical_time = now_timestamp()
 
     if servers:
         response.servers.extend(servers)
