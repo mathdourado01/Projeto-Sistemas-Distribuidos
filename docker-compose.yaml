@@ -17,8 +17,11 @@ services:
       REFERENCE_ADDRESS: tcp://reference-service:5560
       SERVER_NAME: server-python
       SERVER_DB_PATH: data/server.db
-    volumes:
-      - ./server-python/data:/app/data
+      SERVER_SYNC_BIND: tcp://0.0.0.0:5571
+      SERVER_SYNC_ADDRESS: tcp://server-python:5571
+      KNOWN_SERVERS: server-python=tcp://server-python:5571,server-java=tcp://server-java:5572
+    ports:
+      - "5571:5571"
     depends_on:
       - broker
       - pubsub-proxy
@@ -55,9 +58,15 @@ services:
     environment:
       BROKER_ADDRESS: tcp://broker:5555
       PUBSUB_ADDRESS: tcp://pubsub-proxy:5557
+      PUBSUB_PROXY_ADDRESS: tcp://pubsub-proxy:5558
       REFERENCE_ADDRESS: tcp://reference-service:5560
       SERVER_NAME: server-java
       SERVER_DB_PATH: data/server-java.db
+      SERVER_SYNC_BIND: tcp://0.0.0.0:5572
+      SERVER_SYNC_ADDRESS: tcp://server-java:5572
+      KNOWN_SERVERS: server-python=tcp://server-python:5571,server-java=tcp://server-java:5572
+    ports:
+      - "5572:5572"
     volumes:
       - ./server-java/data:/app/data
     depends_on:
