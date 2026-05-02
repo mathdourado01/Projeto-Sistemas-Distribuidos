@@ -66,6 +66,45 @@ O proxy utiliza sockets XSUB e XPUB do ZeroMQ para encaminhar mensagens entre se
 
 Essa separação permite manter a arquitetura modular e escalável.
 
+### Sincronização de relógio físico e eleição de coordenador
+
+Na quarta parte do projeto, foi implementado um mecanismo de sincronização de relógio físico entre os servidores, baseado em um modelo de coordenador.
+
+Cada servidor possui um relógio físico local que pode apresentar diferenças em relação aos demais. Para reduzir essa inconsistência, foi adotada a seguinte abordagem:
+
+- Um servidor é eleito como **coordenador**, responsável por fornecer seu tempo como referência;
+- Os demais servidores enviam requisições (`TIME_REQ`) ao coordenador para obter seu horário;
+- Ao receber a resposta (`TIME_REP`), o servidor calcula um **offset** e ajusta seu relógio físico.
+
+A escolha do coordenador é baseada no **rank dos servidores**, obtido através do serviço de referência. O servidor com menor rank é definido como coordenador inicial.
+
+#### Detecção de falhas e eleição
+
+Caso o coordenador não responda:
+
+- O servidor detecta a falha por timeout;
+- Inicia um processo de eleição enviando mensagens (`ELECTION_REQ`) aos demais servidores;
+- Apenas servidores ativos respondem (`ELECTION_REP`);
+- O novo coordenador é escolhido com base no menor rank entre os ativos;
+- O resultado é divulgado via Pub/Sub no tópico `servers` com a mensagem `COORDINATOR_ANNOUNCE`.
+
+#### Comunicação entre servidores
+
+Foi implementado um canal direto entre servidores utilizando ZeroMQ (REQ/REP), separado da comunicação com clientes. Esse canal é utilizado para:
+
+- sincronização de tempo;
+- troca de mensagens de eleição.
+
+#### Integração com o sistema
+
+A sincronização ocorre de forma transparente:
+
+- o relógio lógico continua sendo utilizado para ordenação de eventos;
+- o relógio físico passa a ser ajustado dinamicamente;
+- o sistema mantém funcionamento mesmo com falha do coordenador.
+
+Essa abordagem garante maior consistência temporal e tolerância a falhas.
+
 #### Desenvolvedores
 
 - João Pedro Sabino Garcia - RA: 22.224.032-7
