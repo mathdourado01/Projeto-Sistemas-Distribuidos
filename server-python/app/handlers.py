@@ -38,7 +38,15 @@ def handle_list_channels(msg, storage):
     )
 
 
-def handle_create_channel(msg, storage):
+def handle_create_channel(
+    msg,
+    storage,
+    pub_socket=None,
+    logical_clock=None,
+    server_name="",
+    server_rank=0,
+    physical_time=0,
+):
     channel_name = msg.channel_name.strip()
 
     if not channel_name:
@@ -66,8 +74,20 @@ def handle_create_channel(msg, storage):
         return make_message(
             msg_type="CREATE_CHANNEL_REP",
             success=False,
+            channel_name=channel_name,
             error_message="Canal já existe.",
             request_id=msg.request_id,
+        )
+
+    if pub_socket is not None and logical_clock is not None:
+        replicate_channel(
+            channel_name=channel_name,
+            request_id=msg.request_id,
+            pub_socket=pub_socket,
+            logical_clock=logical_clock,
+            server_name=server_name,
+            server_rank=server_rank,
+            physical_time=physical_time,
         )
 
     return make_message(
@@ -78,15 +98,15 @@ def handle_create_channel(msg, storage):
     )
 
 
-def handle_unknown(msg):
-    return make_message(
-        msg_type="ERROR_REP",
-        success=False,
-        error_message=f"Tipo de mensagem desconhecido: {msg.type}",
-        request_id=msg.request_id,
-    )
-
-def handle_publish(msg, storage, pub_socket):
+def handle_publish(
+    msg,
+    storage,
+    pub_socket,
+    logical_clock=None,
+    server_name="",
+    server_rank=0,
+    physical_time=0,
+):
     username = msg.username.strip()
     channel_name = msg.channel_name.strip()
     message_text = msg.message_text.strip()
@@ -107,13 +127,25 @@ def handle_publish(msg, storage, pub_socket):
             request_id=msg.request_id,
         )
 
+    # Como o broker usa round-robin, a publicação pode cair em um servidor
+    # que ainda não recebeu a réplica do canal. Para manter a consistência,
+    # criamos o canal localmente antes de salvar a mensagem.
     if not storage.channel_exists(channel_name):
-        return make_message(
-            msg_type="PUBLISH_REP",
-            success=False,
-            error_message="Canal não existe.",
-            request_id=msg.request_id,
+        storage.create_channel(
+            channel_name=channel_name,
+            created_at=msg.timestamp,
         )
+
+        if logical_clock is not None:
+            replicate_channel(
+                channel_name=channel_name,
+                request_id=msg.request_id,
+                pub_socket=pub_socket,
+                logical_clock=logical_clock,
+                server_name=server_name,
+                server_rank=server_rank,
+                physical_time=physical_time,
+            )
 
     if not message_text:
         return make_message(
@@ -123,31 +155,131 @@ def handle_publish(msg, storage, pub_socket):
             request_id=msg.request_id,
         )
 
-    
     storage.save_message(
         username=username,
         channel_name=channel_name,
         message_text=message_text,
         sent_timestamp=msg.timestamp,
+        request_id=msg.request_id,
     )
 
-    
-    payload = make_message(
-    msg_type="CHANNEL_MESSAGE",
-    username=username,
-    channel_name=channel_name,
-    message_text=message_text,
-    logical_clock=msg.logical_clock,
+    channel_payload = make_message(
+        msg_type="CHANNEL_MESSAGE",
+        username=username,
+        channel_name=channel_name,
+        message_text=message_text,
+        logical_clock=msg.logical_clock,
+        server_name=server_name,
+        server_rank=server_rank,
+        physical_time=physical_time,
     )
 
-    
-    topic = channel_name.encode("utf-8")
-    pub_socket.send_multipart([topic, payload.SerializeToString()])
+    pub_socket.send_multipart([
+        channel_name.encode("utf-8"),
+        channel_payload.SerializeToString(),
+    ])
+
+    if logical_clock is not None:
+        replicate_message(
+            username=username,
+            channel_name=channel_name,
+            message_text=message_text,
+            request_id=msg.request_id,
+            sent_timestamp=msg.timestamp,
+            pub_socket=pub_socket,
+            logical_clock=logical_clock,
+            server_name=server_name,
+            server_rank=server_rank,
+            physical_time=physical_time,
+        )
 
     return make_message(
         msg_type="PUBLISH_REP",
         success=True,
         username=username,
         channel_name=channel_name,
+        message_text=message_text,
+        request_id=msg.request_id,
+    )
+
+
+def replicate_channel(
+    channel_name,
+    request_id,
+    pub_socket,
+    logical_clock,
+    server_name,
+    server_rank,
+    physical_time,
+):
+    logical_clock.tick()
+
+    replication = make_message(
+        msg_type="REPLICATION_CHANNEL",
+        success=True,
+        channel_name=channel_name,
+        request_id=request_id,
+        logical_clock=logical_clock.get_value(),
+        server_name=server_name,
+        server_rank=server_rank,
+        physical_time=physical_time,
+    )
+
+    pub_socket.send_multipart([
+        b"replication",
+        replication.SerializeToString(),
+    ])
+
+    print(
+        "Canal replicado no tópico 'replication' | "
+        f"canal={channel_name} | origem={server_name}"
+    )
+
+
+def replicate_message(
+    username,
+    channel_name,
+    message_text,
+    request_id,
+    sent_timestamp,
+    pub_socket,
+    logical_clock,
+    server_name,
+    server_rank,
+    physical_time,
+):
+    logical_clock.tick()
+
+    replication = make_message(
+        msg_type="REPLICATION_MESSAGE",
+        success=True,
+        username=username,
+        channel_name=channel_name,
+        message_text=message_text,
+        request_id=request_id,
+        logical_clock=logical_clock.get_value(),
+        server_name=server_name,
+        server_rank=server_rank,
+        physical_time=physical_time,
+    )
+
+    replication.timestamp = sent_timestamp
+
+    pub_socket.send_multipart([
+        b"replication",
+        replication.SerializeToString(),
+    ])
+
+    print(
+        "Mensagem replicada no tópico 'replication' | "
+        f"id={request_id} | canal={channel_name} | origem={server_name}"
+    )
+
+
+def handle_unknown(msg):
+    return make_message(
+        msg_type="ERROR_REP",
+        success=False,
+        error_message=f"Tipo de mensagem desconhecido: {msg.type}",
         request_id=msg.request_id,
     )

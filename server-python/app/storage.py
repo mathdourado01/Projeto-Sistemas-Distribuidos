@@ -35,6 +35,7 @@ class Storage:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS messages (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    request_id TEXT,
                     username TEXT NOT NULL,
                     channel_name TEXT NOT NULL,
                     message_text TEXT NOT NULL,
@@ -42,7 +43,34 @@ class Storage:
                 )
             """)
 
+            self._add_column_if_missing(
+                cursor=cursor,
+                table_name="messages",
+                column_name="request_id",
+                column_type="TEXT",
+            )
+
+            cursor.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_request_id
+                ON messages(request_id)
+            """)
+
             conn.commit()
+
+    def _add_column_if_missing(
+        self,
+        cursor,
+        table_name: str,
+        column_name: str,
+        column_type: str,
+    ) -> None:
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if column_name not in columns:
+            cursor.execute(
+                f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"
+            )
 
     def save_login(self, username: str, login_timestamp: int) -> None:
         with self._connect() as conn:
@@ -66,20 +94,17 @@ class Storage:
             return cursor.fetchone() is not None
 
     def create_channel(self, channel_name: str, created_at: int) -> bool:
-        if self.channel_exists(channel_name):
-            return False
-
         with self._connect() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                INSERT INTO channels (name, created_at)
+                INSERT OR IGNORE INTO channels (name, created_at)
                 VALUES (?, ?)
                 """,
                 (channel_name, created_at),
             )
             conn.commit()
-            return True
+            return cursor.rowcount > 0
 
     def list_channels(self) -> list[str]:
         with self._connect() as conn:
@@ -94,15 +119,28 @@ class Storage:
         channel_name: str,
         message_text: str,
         sent_timestamp: int,
+        request_id=None,
     ) -> None:
         with self._connect() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                INSERT INTO messages (username, channel_name, message_text, sent_timestamp)
-                VALUES (?, ?, ?, ?)
+                INSERT OR IGNORE INTO messages (
+                    request_id,
+                    username,
+                    channel_name,
+                    message_text,
+                    sent_timestamp
+                )
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (username, channel_name, message_text, sent_timestamp),
+                (
+                    request_id if request_id else None,
+                    username,
+                    channel_name,
+                    message_text,
+                    sent_timestamp,
+                ),
             )
             conn.commit()
 

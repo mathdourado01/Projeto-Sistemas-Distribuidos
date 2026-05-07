@@ -369,6 +369,89 @@ def start_coordinator_subscription_listener(
     return thread
 
 
+def start_replication_listener(
+    pubsub_proxy_address: str,
+    storage: Storage,
+    server_name: str,
+    logical_clock: LogicalClock,
+    stop_event: threading.Event,
+) -> threading.Thread:
+    def listen():
+        context = zmq.Context.instance()
+        sub_socket = context.socket(zmq.SUB)
+        sub_socket.connect(pubsub_proxy_address)
+        sub_socket.setsockopt_string(zmq.SUBSCRIBE, "replication")
+
+        poller = zmq.Poller()
+        poller.register(sub_socket, zmq.POLLIN)
+
+        print("Servidor inscrito no tópico 'replication' para réplica de dados.")
+
+        while not stop_event.is_set():
+            events = dict(poller.poll(500))
+
+            if sub_socket not in events:
+                continue
+
+            topic, raw_message = sub_socket.recv_multipart()
+
+            incoming = Envelope()
+            incoming.ParseFromString(raw_message)
+
+            if incoming.server_name == server_name:
+                continue
+
+            logical_clock.update(incoming.logical_clock)
+
+            if incoming.type == "REPLICATION_CHANNEL":
+                channel_name = incoming.channel_name.strip()
+
+                if channel_name:
+                    storage.create_channel(
+                        channel_name=channel_name,
+                        created_at=incoming.timestamp,
+                    )
+
+                    print(
+                        "Réplica de canal recebida | "
+                        f"canal={channel_name} | origem={incoming.server_name}"
+                    )
+
+            elif incoming.type == "REPLICATION_MESSAGE":
+                username = incoming.username.strip()
+                channel_name = incoming.channel_name.strip()
+                message_text = incoming.message_text.strip()
+
+                if channel_name and not storage.channel_exists(channel_name):
+                    storage.create_channel(
+                        channel_name=channel_name,
+                        created_at=incoming.timestamp,
+                    )
+
+                if username and channel_name and message_text:
+                    storage.save_message(
+                        username=username,
+                        channel_name=channel_name,
+                        message_text=message_text,
+                        sent_timestamp=incoming.timestamp,
+                        request_id=incoming.request_id,
+                    )
+
+                    print(
+                        "Réplica de mensagem recebida | "
+                        f"id={incoming.request_id} | "
+                        f"canal={channel_name} | "
+                        f"origem={incoming.server_name}"
+                    )
+
+        sub_socket.close()
+
+    thread = threading.Thread(target=listen, daemon=True)
+    thread.start()
+
+    return thread
+
+
 def main() -> None:
     broker_address = os.getenv("BROKER_ADDRESS", "tcp://broker:5555")
     pubsub_address = os.getenv("PUBSUB_ADDRESS", "tcp://pubsub-proxy:5557")
@@ -434,6 +517,14 @@ def main() -> None:
         stop_event=stop_event,
     )
 
+    start_replication_listener(
+        pubsub_proxy_address=pubsub_sub_address,
+        storage=storage,
+        server_name=server_name,
+        logical_clock=logical_clock,
+        stop_event=stop_event,
+    )
+
     time.sleep(1)
 
     if current_coordinator_ref["name"] == server_name:
@@ -461,7 +552,10 @@ def main() -> None:
 
         print_message("RECEBIDA", incoming)
         print(f"Relógio lógico local após receber: {logical_clock.get_value()}")
-        print(f"Relógio físico ajustado: {get_adjusted_physical_time(physical_clock_offset_ref['offset'])}")
+        print(
+            "Relógio físico ajustado: "
+            f"{get_adjusted_physical_time(physical_clock_offset_ref['offset'])}"
+        )
 
         if client_message_count % 10 == 0:
             send_heartbeat(reference_socket, server_name)
@@ -496,6 +590,10 @@ def main() -> None:
                         f"offset={physical_clock_offset_ref['offset']}"
                     )
 
+        physical_time = get_adjusted_physical_time(
+            physical_clock_offset_ref["offset"]
+        )
+
         if incoming.type == "LOGIN_REQ":
             response = handle_login(incoming, storage)
 
@@ -503,10 +601,26 @@ def main() -> None:
             response = handle_list_channels(incoming, storage)
 
         elif incoming.type == "CREATE_CHANNEL_REQ":
-            response = handle_create_channel(incoming, storage)
+            response = handle_create_channel(
+                incoming,
+                storage,
+                pub_socket=pub_socket,
+                logical_clock=logical_clock,
+                server_name=server_name,
+                server_rank=server_rank,
+                physical_time=physical_time,
+            )
 
         elif incoming.type == "PUBLISH_REQ":
-            response = handle_publish(incoming, storage, pub_socket)
+            response = handle_publish(
+                incoming,
+                storage,
+                pub_socket,
+                logical_clock=logical_clock,
+                server_name=server_name,
+                server_rank=server_rank,
+                physical_time=physical_time,
+            )
 
         else:
             response = handle_unknown(incoming)
@@ -515,7 +629,9 @@ def main() -> None:
         response.logical_clock = logical_clock.get_value()
         response.server_name = server_name
         response.server_rank = server_rank
-        response.physical_time = get_adjusted_physical_time(physical_clock_offset_ref["offset"])
+        response.physical_time = get_adjusted_physical_time(
+            physical_clock_offset_ref["offset"]
+        )
 
         print_message("ENVIADA", response)
         print(f"Relógio lógico local após enviar: {logical_clock.get_value()}")

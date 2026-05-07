@@ -8,17 +8,52 @@ services:
       - "5554:5554"
       - "5555:5555"
 
+  pubsub-proxy:
+    build: ./pubsub-proxy
+    container_name: pubsub-proxy
+    ports:
+      - "5557:5557"
+      - "5558:5558"
+
+  reference-service:
+    build: ./reference-service
+    container_name: reference-service
+    ports:
+      - "5560:5560"
+
   server-python:
     build: ./server-python
     container_name: server-python
     environment:
       BROKER_ADDRESS: tcp://broker:5555
       PUBSUB_ADDRESS: tcp://pubsub-proxy:5557
+      PUBSUB_PROXY_ADDRESS: tcp://pubsub-proxy:5558
       REFERENCE_ADDRESS: tcp://reference-service:5560
       SERVER_NAME: server-python
       SERVER_DB_PATH: data/server.db
+      SERVER_SYNC_BIND: tcp://0.0.0.0:5571
+      KNOWN_SERVERS: server-python=tcp://server-python:5571,server-java=tcp://server-java:5572
     volumes:
       - ./server-python/data:/app/data
+    depends_on:
+      - broker
+      - pubsub-proxy
+      - reference-service
+
+  server-java:
+    build: ./server-java
+    container_name: server-java
+    environment:
+      BROKER_ADDRESS: tcp://broker:5555
+      PUBSUB_ADDRESS: tcp://pubsub-proxy:5557
+      PUBSUB_PROXY_ADDRESS: tcp://pubsub-proxy:5558
+      REFERENCE_ADDRESS: tcp://reference-service:5560
+      SERVER_NAME: server-java
+      SERVER_DB_PATH: data/server-java.db
+      SERVER_SYNC_BIND: tcp://0.0.0.0:5572
+      KNOWN_SERVERS: server-python=tcp://server-python:5571,server-java=tcp://server-java:5572
+    volumes:
+      - ./server-java/data:/app/data
     depends_on:
       - broker
       - pubsub-proxy
@@ -34,36 +69,9 @@ services:
       BOT_CHANNEL: geral
     depends_on:
       - broker
-      - server-python 
-
-  pubsub-proxy:
-    build: ./pubsub-proxy
-    container_name: pubsub-proxy
-    ports:
-      - "5557:5557"
-      - "5558:5558"
-
-  reference-service:
-    build: ./reference-service
-    container_name: reference-service
-    ports:
-      - "5560:5560"
-  
-  server-java:
-    build: ./server-java
-    container_name: server-java
-    environment:
-      BROKER_ADDRESS: tcp://broker:5555
-      PUBSUB_ADDRESS: tcp://pubsub-proxy:5557
-      REFERENCE_ADDRESS: tcp://reference-service:5560
-      SERVER_NAME: server-java
-      SERVER_DB_PATH: data/server-java.db
-    volumes:
-      - ./server-java/data:/app/data
-    depends_on:
-      - broker
       - pubsub-proxy
-      - reference-service
+      - server-python
+      - server-java
 
   client-java:
     build: ./client-java
@@ -76,4 +84,5 @@ services:
     depends_on:
       - broker
       - pubsub-proxy
+      - server-python
       - server-java

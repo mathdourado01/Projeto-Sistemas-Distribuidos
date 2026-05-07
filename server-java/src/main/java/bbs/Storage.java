@@ -1,5 +1,6 @@
 package bbs;
 
+import java.io.File;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -8,6 +9,13 @@ public class Storage {
     private final String dbUrl;
 
     public Storage(String dbPath) {
+        File dbFile = new File(dbPath);
+        File parent = dbFile.getParentFile();
+
+        if (parent != null) {
+            parent.mkdirs();
+        }
+
         this.dbUrl = "jdbc:sqlite:" + dbPath;
         ensureDatabase();
     }
@@ -39,6 +47,7 @@ public class Storage {
             stmt.execute("""
                 CREATE TABLE IF NOT EXISTS messages (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    request_id TEXT,
                     username TEXT NOT NULL,
                     channel_name TEXT NOT NULL,
                     message_text TEXT NOT NULL,
@@ -46,8 +55,43 @@ public class Storage {
                 )
             """);
 
+            addColumnIfMissing(conn, "messages", "request_id", "TEXT");
+
+            stmt.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_request_id
+                ON messages(request_id)
+            """);
+
         } catch (SQLException e) {
             throw new RuntimeException("Erro ao inicializar banco: " + e.getMessage(), e);
+        }
+    }
+
+    private void addColumnIfMissing(
+            Connection conn,
+            String tableName,
+            String columnName,
+            String columnType
+    ) throws SQLException {
+        boolean exists = false;
+
+        try (PreparedStatement ps = conn.prepareStatement("PRAGMA table_info(" + tableName + ")");
+             ResultSet rs = ps.executeQuery()) {
+
+            while (rs.next()) {
+                String existingColumn = rs.getString("name");
+
+                if (existingColumn.equalsIgnoreCase(columnName)) {
+                    exists = true;
+                    break;
+                }
+            }
+        }
+
+        if (!exists) {
+            try (Statement stmt = conn.createStatement()) {
+                stmt.execute("ALTER TABLE " + tableName + " ADD COLUMN " + columnName + " " + columnType);
+            }
         }
     }
 
@@ -56,9 +100,11 @@ public class Storage {
 
         try (Connection conn = connect();
              PreparedStatement ps = conn.prepareStatement(sql)) {
+
             ps.setString(1, username);
             ps.setLong(2, loginTimestamp);
             ps.executeUpdate();
+
         } catch (SQLException e) {
             throw new RuntimeException("Erro ao salvar login: " + e.getMessage(), e);
         }
@@ -69,27 +115,31 @@ public class Storage {
 
         try (Connection conn = connect();
              PreparedStatement ps = conn.prepareStatement(sql)) {
+
             ps.setString(1, channelName);
+
             ResultSet rs = ps.executeQuery();
+
             return rs.next();
+
         } catch (SQLException e) {
             throw new RuntimeException("Erro ao verificar canal: " + e.getMessage(), e);
         }
     }
 
     public boolean createChannel(String channelName, long createdAt) {
-        if (channelExists(channelName)) {
-            return false;
-        }
-
-        String sql = "INSERT INTO channels (name, created_at) VALUES (?, ?)";
+        String sql = "INSERT OR IGNORE INTO channels (name, created_at) VALUES (?, ?)";
 
         try (Connection conn = connect();
              PreparedStatement ps = conn.prepareStatement(sql)) {
+
             ps.setString(1, channelName);
             ps.setLong(2, createdAt);
-            ps.executeUpdate();
-            return true;
+
+            int affectedRows = ps.executeUpdate();
+
+            return affectedRows > 0;
+
         } catch (SQLException e) {
             throw new RuntimeException("Erro ao criar canal: " + e.getMessage(), e);
         }
@@ -114,19 +164,49 @@ public class Storage {
         }
     }
 
-    public void saveMessage(String username, String channelName, String messageText, long sentTimestamp) {
+    public void saveMessage(
+            String username,
+            String channelName,
+            String messageText,
+            long sentTimestamp
+    ) {
+        saveMessage(username, channelName, messageText, sentTimestamp, null);
+    }
+
+    public void saveMessage(
+            String username,
+            String channelName,
+            String messageText,
+            long sentTimestamp,
+            String requestId
+    ) {
         String sql = """
-            INSERT INTO messages (username, channel_name, message_text, sent_timestamp)
-            VALUES (?, ?, ?, ?)
+            INSERT OR IGNORE INTO messages (
+                request_id,
+                username,
+                channel_name,
+                message_text,
+                sent_timestamp
+            )
+            VALUES (?, ?, ?, ?, ?)
         """;
 
         try (Connection conn = connect();
              PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, username);
-            ps.setString(2, channelName);
-            ps.setString(3, messageText);
-            ps.setLong(4, sentTimestamp);
+
+            if (requestId == null || requestId.isBlank()) {
+                ps.setNull(1, Types.VARCHAR);
+            } else {
+                ps.setString(1, requestId);
+            }
+
+            ps.setString(2, username);
+            ps.setString(3, channelName);
+            ps.setString(4, messageText);
+            ps.setLong(5, sentTimestamp);
+
             ps.executeUpdate();
+
         } catch (SQLException e) {
             throw new RuntimeException("Erro ao salvar mensagem: " + e.getMessage(), e);
         }

@@ -105,6 +105,27 @@ A sincronização ocorre de forma transparente:
 
 Essa abordagem garante maior consistência temporal e tolerância a falhas.
 
+### Consistência e replicação
+
+Na quinta parte do projeto, foi implementado um mecanismo de consistência e replicação entre os servidores. Essa etapa foi necessária porque o broker distribui as requisições entre os servidores por meio de round-robin. Dessa forma, sem replicação, cada servidor armazenaria apenas parte das mensagens recebidas, o que poderia causar perda de histórico caso um servidor parasse de funcionar.
+
+Para resolver esse problema, foi adotada uma estratégia de replicação ativa por difusão utilizando o modelo Publish-Subscribe. Quando um servidor recebe uma alteração relevante, como a criação de um canal ou a publicação de uma mensagem, ele salva essa informação em seu banco local e publica uma cópia no tópico `replication`.
+
+Todos os servidores ficam inscritos no tópico `replication`. Assim, quando uma réplica é publicada por um servidor, os demais servidores recebem essa informação e aplicam a mesma alteração em seus próprios bancos SQLite locais. Com isso, os servidores passam a manter cópias dos mesmos dados principais.
+
+Foram definidos dois tipos de mensagens de replicação:
+
+- `REPLICATION_CHANNEL`: utilizada para replicar a criação de canais;
+- `REPLICATION_MESSAGE`: utilizada para replicar mensagens publicadas nos canais.
+
+Cada mensagem replicada carrega informações como usuário, canal, conteúdo da mensagem, timestamp, `request_id` e `server_name`. O campo `server_name` identifica o servidor de origem, permitindo que um servidor ignore réplicas geradas por ele mesmo.
+
+Para evitar duplicidade, foi utilizado o campo `request_id` como identificador único das mensagens. Esse identificador é armazenado junto com a mensagem no banco SQLite, e a inserção é feita de forma a impedir que a mesma mensagem seja salva mais de uma vez no mesmo servidor.
+
+A implementação foi feita tanto no servidor Python quanto no servidor Java. Ambos os servidores publicam réplicas quando recebem novas mensagens ou criam canais, e ambos também recebem réplicas vindas de outros servidores.
+
+A validação foi realizada comparando os bancos SQLite dos dois servidores. O banco do `server-python` passou a conter mensagens enviadas pelo `bot_python_1` e pelo `bot_java_1`. Da mesma forma, o banco do `server-java` também passou a conter mensagens dos dois bots, com os mesmos `request_id`. Isso demonstra que as mensagens foram replicadas e persistidas nos dois servidores.
+
 #### Desenvolvedores
 
 - João Pedro Sabino Garcia - RA: 22.224.032-7

@@ -38,7 +38,15 @@ public class Handlers {
         );
     }
 
-    public static Envelope handleCreateChannel(Envelope msg, Storage storage) {
+    public static Envelope handleCreateChannel(
+            Envelope msg,
+            Storage storage,
+            ZMQ.Socket pubSocket,
+            LogicalClock logicalClock,
+            String serverName,
+            int serverRank,
+            long physicalTime
+    ) {
         String channelName = msg.getChannelName().trim();
 
         if (channelName.isBlank()) {
@@ -70,6 +78,16 @@ public class Handlers {
             );
         }
 
+        replicateChannel(
+                channelName,
+                msg.getRequestId(),
+                pubSocket,
+                logicalClock,
+                serverName,
+                serverRank,
+                physicalTime
+        );
+
         return ProtocolUtil.makeMessage(
                 "CREATE_CHANNEL_REP", "", channelName, true,
                 "", null, msg.getRequestId(), "",
@@ -81,7 +99,10 @@ public class Handlers {
             Envelope msg,
             Storage storage,
             ZMQ.Socket pubSocket,
-            LogicalClock logicalClock
+            LogicalClock logicalClock,
+            String serverName,
+            int serverRank,
+            long physicalTime
     ) {
         String username = msg.getUsername().trim();
         String channelName = msg.getChannelName().trim();
@@ -105,12 +126,22 @@ public class Handlers {
             );
         }
 
+        /*
+         * Como o broker usa round-robin, o cliente pode ter visto o canal em um
+         * servidor, mas a publicação cair em outro servidor que ainda não recebeu
+         * a réplica. Para manter o funcionamento distribuído, o servidor cria
+         * localmente o canal antes de salvar a mensagem.
+         */
         if (!storage.channelExists(channelName)) {
-            return ProtocolUtil.makeMessage(
-                    "PUBLISH_REP", "", channelName, false,
-                    "Canal não existe.",
-                    null, msg.getRequestId(), "",
-                    0, "", 0, null, 0
+            storage.createChannel(channelName, msg.getTimestamp());
+            replicateChannel(
+                    channelName,
+                    msg.getRequestId(),
+                    pubSocket,
+                    logicalClock,
+                    serverName,
+                    serverRank,
+                    physicalTime
             );
         }
 
@@ -123,7 +154,13 @@ public class Handlers {
             );
         }
 
-        storage.saveMessage(username, channelName, messageText, msg.getTimestamp());
+        storage.saveMessage(
+                username,
+                channelName,
+                messageText,
+                msg.getTimestamp(),
+                msg.getRequestId()
+        );
 
         logicalClock.tick();
 
@@ -137,19 +174,115 @@ public class Handlers {
                 null,
                 messageText,
                 logicalClock.getValue(),
-                "",
-                0,
+                serverName,
+                serverRank,
                 null,
-                ProtocolUtil.nowTimestamp()
+                physicalTime
         );
 
         pubSocket.sendMore(channelName);
         pubSocket.send(payload.toByteArray(), 0);
 
+        replicateMessage(
+                username,
+                channelName,
+                messageText,
+                msg.getRequestId(),
+                msg.getTimestamp(),
+                pubSocket,
+                logicalClock,
+                serverName,
+                serverRank,
+                physicalTime
+        );
+
         return ProtocolUtil.makeMessage(
                 "PUBLISH_REP", username, channelName, true,
                 "", null, msg.getRequestId(), messageText,
                 0, "", 0, null, 0
+        );
+    }
+
+    private static void replicateChannel(
+            String channelName,
+            String requestId,
+            ZMQ.Socket pubSocket,
+            LogicalClock logicalClock,
+            String serverName,
+            int serverRank,
+            long physicalTime
+    ) {
+        logicalClock.tick();
+
+        Envelope replication = ProtocolUtil.makeMessage(
+                "REPLICATION_CHANNEL",
+                "",
+                channelName,
+                true,
+                "",
+                null,
+                requestId,
+                "",
+                logicalClock.getValue(),
+                serverName,
+                serverRank,
+                null,
+                physicalTime
+        );
+
+        pubSocket.sendMore("replication");
+        pubSocket.send(replication.toByteArray(), 0);
+
+        System.out.println(
+                "Canal replicado no tópico 'replication' | canal="
+                        + channelName
+                        + " | origem="
+                        + serverName
+        );
+    }
+
+    private static void replicateMessage(
+            String username,
+            String channelName,
+            String messageText,
+            String requestId,
+            long sentTimestamp,
+            ZMQ.Socket pubSocket,
+            LogicalClock logicalClock,
+            String serverName,
+            int serverRank,
+            long physicalTime
+    ) {
+        logicalClock.tick();
+
+        Envelope replication = ProtocolUtil.makeMessage(
+                "REPLICATION_MESSAGE",
+                username,
+                channelName,
+                true,
+                "",
+                null,
+                requestId,
+                messageText,
+                logicalClock.getValue(),
+                serverName,
+                serverRank,
+                null,
+                physicalTime
+        ).toBuilder()
+                .setTimestamp(sentTimestamp)
+                .build();
+
+        pubSocket.sendMore("replication");
+        pubSocket.send(replication.toByteArray(), 0);
+
+        System.out.println(
+                "Mensagem replicada no tópico 'replication' | id="
+                        + requestId
+                        + " | canal="
+                        + channelName
+                        + " | origem="
+                        + serverName
         );
     }
 
