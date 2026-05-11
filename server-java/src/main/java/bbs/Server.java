@@ -111,9 +111,10 @@ public class Server {
         ZMQ.Socket timeSocket = ctx.socket(ZMQ.REQ);
         timeSocket.setReceiveTimeOut(3000);
         timeSocket.setSendTimeOut(3000);
-        timeSocket.connect(address);
 
         try {
+            timeSocket.connect(address);
+
             Envelope req = Envelope.newBuilder()
                     .setType("TIME_REQ")
                     .setServerName(serverName)
@@ -124,18 +125,28 @@ public class Server {
             byte[] reply = timeSocket.recv();
 
             if (reply == null) {
+                System.out.println("Coordenador " + coordinator + " não respondeu ao TIME_REQ.");
                 return null;
             }
 
             Envelope rep = Envelope.parseFrom(reply);
 
             if (!rep.getSuccess()) {
+                System.out.println("Coordenador " + coordinator + " respondeu erro ao TIME_REQ.");
                 return null;
             }
 
             return rep.getPhysicalTime();
 
         } catch (Exception e) {
+            System.out.println(
+                    "Falha ao conectar ao coordenador "
+                            + coordinator
+                            + " em "
+                            + address
+                            + ": "
+                            + e.getMessage()
+            );
             return null;
 
         } finally {
@@ -190,12 +201,18 @@ public class Server {
 
             String address = knownServers.get(name);
 
+            if (address == null || address.isBlank()) {
+                System.out.println("Endereço do servidor " + name + " não encontrado na eleição.");
+                continue;
+            }
+
             ZMQ.Socket electionSocket = ctx.socket(ZMQ.REQ);
             electionSocket.setReceiveTimeOut(2000);
             electionSocket.setSendTimeOut(2000);
-            electionSocket.connect(address);
 
             try {
+                electionSocket.connect(address);
+
                 logicalClock.tick();
 
                 Envelope req = ProtocolUtil.makeMessage(
@@ -231,7 +248,16 @@ public class Server {
                     System.out.println("Servidor " + name + " respondeu OK à eleição.");
                 }
 
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                System.out.println(
+                        "Falha ao contatar servidor "
+                                + name
+                                + " durante eleição em "
+                                + address
+                                + ": "
+                                + e.getMessage()
+                );
+
             } finally {
                 electionSocket.close();
             }
@@ -558,7 +584,7 @@ public class Server {
 
             logicalClock.update(incoming.getLogicalClock());
             clientMessageCount++;
-
+            System.out.println("Contador de mensagens do servidor Java: " + clientMessageCount);
             Printer.printMessage("RECEBIDA", incoming);
             System.out.println("Relógio lógico local do servidor Java após receber: " + logicalClock.getValue());
             System.out.println("Relógio físico ajustado Java: " + getPhysicalTime());
